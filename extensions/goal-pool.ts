@@ -38,6 +38,7 @@ export function resolveSessionFocus(args: {
 	pool: Map<string, GoalRecord>;
 	focusEntry?: GoalFocusEntry | null;
 	legacyGoal?: GoalRecord | null;
+	skipAutoFocus?: boolean;
 }): string | null {
 	const focusedGoalId = args.focusEntry?.focusedGoalId ?? null;
 	const focused = focusedGoalId ? focusedGoalFromPool(args.pool, focusedGoalId) : null;
@@ -51,6 +52,9 @@ export function resolveSessionFocus(args: {
 		if (args.pool.has(args.legacyGoal.id)) return args.legacyGoal.id;
 		args.pool.set(args.legacyGoal.id, cloneGoal(args.legacyGoal));
 		return args.legacyGoal.id;
+	}
+	if (args.skipAutoFocus) {
+		return null;
 	}
 	const open = openGoalsFromPool(args.pool);
 	return open.length === 1 ? open[0]?.id ?? null : null;

@@ -868,7 +868,7 @@ export default function goalExtension(pi: ExtensionAPI): void {
 		}
 	}
 
-	function loadState(ctx: ExtensionContext): void {
+	function loadState(ctx: ExtensionContext, reason?: string): void {
 		goalsById = readActiveGoalPool(ctx);
 		focusedGoalId = null;
 		let focusEntry: GoalFocusEntry | null = null;
@@ -890,7 +890,7 @@ export default function goalExtension(pi: ExtensionAPI): void {
 		if (legacyGoal && legacyGoal.status !== "complete") {
 			legacyGoal = sanitizeGoalPaths(ctx, mergeGoalPromptFromDisk(ctx, legacyGoal));
 		}
-		focusedGoalId = resolveSessionFocus({ pool: goalsById, focusEntry, legacyGoal });
+		focusedGoalId = resolveSessionFocus({ pool: goalsById, focusEntry, legacyGoal, skipAutoFocus: reason === "new" || reason === "startup" });
 		if (!focusEntry && focusedGoalId) {
 			try {
 				appendFocusEntry(focusedGoalId, legacyGoal?.id === focusedGoalId ? "migrated" : "selected");
@@ -3407,7 +3407,7 @@ promptGuidelines: [
 	});
 
 	pi.on("session_start", async (event, ctx) => {
-		loadState(ctx);
+		loadState(ctx, event.reason);
 		syncTerminalInputPause(ctx);
 		if (event.reason === "resume" && !state.goal && openGoals().length > 1 && ctx.hasUI) {
 			await focusGoalCommand(ctx);

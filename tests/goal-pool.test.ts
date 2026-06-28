@@ -65,6 +65,9 @@ test("resolveSessionFocus prefers valid branch focus, then legacy goal, then sin
 
 	const singlePool = goalPoolFromGoals([goal("only")]);
 	assert.equal(resolveSessionFocus({ pool: singlePool }), "only");
+
+	// skipAutoFocus prevents the single-goal fallback
+	assert.equal(resolveSessionFocus({ pool: singlePool, skipAutoFocus: true }), null);
 });
 
 test("goal list and selector labels expose focus without storing it in goals", () => {
