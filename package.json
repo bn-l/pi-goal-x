@@ -1,7 +1,7 @@
 {
   "name": "pi-goal-x",
-  "version": "0.18.8",
-  "description": "Goal mode extension for pi: persistent long-running objectives, /goal-set drafting, Sisyphus prompt style, autoContinue, and an above-editor status overlay. Fork of @capyup/pi-goal.",
+  "version": "0.19.0",
+  "description": "Goal mode extension for pi: persistent long-running objectives, /goal-set drafting, Sisyphus prompt style, autoContinue, and an above-editor status overlay. Fork of tmonk/pi-goal-x.",
   "license": "MIT",
   "author": "pi-goal-x contributors",
   "type": "module",
@@ -17,11 +17,11 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tmonk/pi-goal-x.git"
+    "url": "git+https://github.com/bn-l/pi-goal-x.git"
   },
-  "homepage": "https://github.com/tmonk/pi-goal-x#readme",
+  "homepage": "https://github.com/bn-l/pi-goal-x#readme",
   "bugs": {
-    "url": "https://github.com/tmonk/pi-goal-x/issues"
+    "url": "https://github.com/bn-l/pi-goal-x/issues"
   },
   "files": [
     "extensions",
@@ -33,7 +33,7 @@
     "extensions": [
       "extensions/goal.ts"
     ],
-    "image": "https://github.com/tmonk/pi-goal-x/raw/main/screenshot.png"
+    "image": "https://github.com/bn-l/pi-goal-x/raw/main/screenshot.png"
   },
   "scripts": {
     "check": "tsc --noEmit",
