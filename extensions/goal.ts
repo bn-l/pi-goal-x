@@ -32,6 +32,7 @@ import {
 	registerQuestionnaireTools,
 	shouldAutoConfirmProposal,
 	showProposalDialog,
+	type ProposalDecision,
 } from "./goal-questionnaire.ts";
 import {
 	ABORT_GOAL_TOOL_NAME,
@@ -891,7 +892,7 @@ export default function goalExtension(pi: ExtensionAPI): void {
 		if (legacyGoal && legacyGoal.status !== "complete") {
 			legacyGoal = sanitizeGoalPaths(ctx, mergeGoalPromptFromDisk(ctx, legacyGoal));
 		}
-		focusedGoalId = resolveSessionFocus({ pool: goalsById, focusEntry, legacyGoal, skipAutoFocus: reason === "new" || reason === "startup" });
+		focusedGoalId = resolveSessionFocus({ pool: goalsById, focusEntry, legacyGoal, skipAutoFocus: reason === "new" || reason === "startup" || reason === "resume" });
 		if (!focusEntry && focusedGoalId) {
 			try {
 				appendFocusEntry(focusedGoalId, legacyGoal?.id === focusedGoalId ? "migrated" : "selected");
@@ -995,7 +996,8 @@ export default function goalExtension(pi: ExtensionAPI): void {
 
 			// Ctrl+Shift+T — show task list overlay for all open goals
 			if (matchesKey(data, "ctrl+shift+t")) {
-				showTaskListOverlay(ctx, goalsById, focusedGoalId);
+				inGoalUiDialog = true;
+				showTaskListOverlay(ctx, goalsById, focusedGoalId).finally(() => { inGoalUiDialog = false; });
 				return { consume: true };
 			}
 
@@ -1281,7 +1283,8 @@ Verification contract:
 				...taskLines,
 			].join("\n");
 
-			showProposalDialog(ctx, confirmationText + taskProposal, "goal", true);
+			inGoalUiDialog = true;
+			showProposalDialog(ctx, confirmationText + taskProposal, "goal", true).finally(() => { inGoalUiDialog = false; });
 		}
 	}
 
@@ -2080,6 +2083,7 @@ ${objective}` : objective,
 				decision = { decision: "confirm", auditorEnabled: auditorDefault };
 			} else {
 				// TUI: show overlay dialog.
+				inGoalUiDialog = true;
 				try {
 					decision = await showProposalDialog(ctx, draftSummary, activeIntent.focus, auditorDefault);
 				} catch (err) {
@@ -2089,6 +2093,8 @@ ${objective}` : objective,
 						content: [{ type: "text", text: message }],
 						details: goalDetails(state.goal),
 					};
+				} finally {
+					inGoalUiDialog = false;
 				}
 			}
 
@@ -2228,6 +2234,7 @@ ${objective}` : objective,
 			if (headless) {
 				decision = { decision: "confirm", auditorEnabled: !state.goal.skipAuditor };
 			} else {
+				inGoalUiDialog = true;
 				try {
 					decision = await showProposalDialog(ctx, draftSummary, state.goal.sisyphus ? "sisyphus" : "goal", !state.goal.skipAuditor);
 				} catch (err) {
@@ -2237,6 +2244,8 @@ ${objective}` : objective,
 						content: [{ type: "text", text: message }],
 						details: goalDetails(state.goal),
 					};
+				} finally {
+					inGoalUiDialog = false;
 				}
 			}
 
@@ -2596,7 +2605,9 @@ ${objective}` : objective,
 				updateUI(ctx);
 
 				showingEscapeDialog = true;
+				inGoalUiDialog = true;
 				const userChoice: EscapeDialogResult = await showEscapeDialog(ctx, auditTarget.objective);
+				inGoalUiDialog = false;
 				showingEscapeDialog = false;
 
 				if (userChoice === "complete_without_audit") {
@@ -3025,7 +3036,13 @@ ${objective}` : objective,
 			const gateLabel = blockCompletion ? " (blockCompletion enabled)" : "";
 			const proposalText = [`Proposed task list${gateLabel}:`, "", ...taskLines].join("\n");
 
-			const dialogResult = await showProposalDialog(ctx, proposalText, "goal", !state.goal?.skipAuditor);
+			let dialogResult: { decision: ProposalDecision; auditorEnabled: boolean };
+			inGoalUiDialog = true;
+			try {
+				dialogResult = await showProposalDialog(ctx, proposalText, "goal", !state.goal?.skipAuditor);
+			} finally {
+				inGoalUiDialog = false;
+			}
 			if (dialogResult.decision !== "confirm") {
 				return {
 					content: [{ type: "text", text: "Task list proposal declined." }],
