@@ -416,6 +416,7 @@ export default function goalExtension(pi: ExtensionAPI): void {
 	let auditAnimationTimer: ReturnType<typeof setInterval> | null = null;
 	let auditAbortController: AbortController | null = null;
 	let showingEscapeDialog = false;
+	let inGoalUiDialog = false;
 	let debugMode = false;
 	let debugGoalCounter = 0;
 	let debugMockAuditTimer: ReturnType<typeof setInterval> | null = null;
@@ -975,6 +976,9 @@ export default function goalExtension(pi: ExtensionAPI): void {
 		if (!ctx.hasUI) return;
 		terminalInputUnsubscribe?.();
 		terminalInputUnsubscribe = ctx.ui.onTerminalInput((data) => {
+			// When a goal UI dialog (settings, goal picker, etc.) is open,
+			// do not intercept any keys — let the dialog handle them.
+			if (inGoalUiDialog) return undefined;
 			// If an audit is running, Escape aborts the audit instead of pausing.
 			// Must return { consume: true } so the TUI doesn't also process the key
 			// and abort the running tool execution, which would cascade into pausing
@@ -1470,14 +1474,19 @@ Verification contract:
 		}
 		const labels = open.map((item) => goalSelectorLabel(item, focusedGoalId));
 		const byLabel = new Map(labels.map((label, index) => [label, open[index]?.id]));
-		const selected = await ctx.ui.select(title, labels);
-		const selectedId = selected ? byLabel.get(selected) : undefined;
-		if (!selectedId) {
-			ctx.ui.notify("Goal focus unchanged.", "info");
-			return null;
+		inGoalUiDialog = true;
+		try {
+			const selected = await ctx.ui.select(title, labels);
+			const selectedId = selected ? byLabel.get(selected) : undefined;
+			if (!selectedId) {
+				ctx.ui.notify("Goal focus unchanged.", "info");
+				return null;
+			}
+			setFocusedGoalId(selectedId, ctx, "selected");
+			return state.goal;
+		} finally {
+			inGoalUiDialog = false;
 		}
-		setFocusedGoalId(selectedId, ctx, "selected");
-		return state.goal;
 	}
 
 	async function focusGoalCommand(ctx: ExtensionContext): Promise<void> {
@@ -1500,15 +1509,20 @@ Verification contract:
 		}
 		const labels = open.map((item) => goalSelectorLabel(item, focusedGoalId));
 		const byLabel = new Map(labels.map((label, index) => [label, open[index]?.id]));
-		const selected = await ctx.ui.select("Focus open goal", labels);
-		const selectedId = selected ? byLabel.get(selected) : undefined;
-		if (!selectedId) {
-			ctx.ui.notify("Goal focus unchanged.", "info");
-			return;
+		inGoalUiDialog = true;
+		try {
+			const selected = await ctx.ui.select("Focus open goal", labels);
+			const selectedId = selected ? byLabel.get(selected) : undefined;
+			if (!selectedId) {
+				ctx.ui.notify("Goal focus unchanged.", "info");
+				return;
+			}
+			setFocusedGoalId(selectedId, ctx, "selected");
+			armFocusedContinuation(ctx);
+			ctx.ui.notify(`Focused goal: ${oneLineSummary(state.goal)}`, "info");
+		} finally {
+			inGoalUiDialog = false;
 		}
-		setFocusedGoalId(selectedId, ctx, "selected");
-		armFocusedContinuation(ctx);
-		ctx.ui.notify(`Focused goal: ${oneLineSummary(state.goal)}`, "info");
 	}
 
 	async function handleGoalCommandTopic(rawTopic: string, ctx: ExtensionContext, focus: DraftingFocus, opts: { replace: boolean }): Promise<void> {
@@ -1644,58 +1658,63 @@ Verification contract:
 			return;
 		}
 		const editorKeys = ["disabled", "provider", "model", "thinking_level", "subtaskDepth"] as const;
-		while (true) {
-			const config = loadGoalSettingsFileConfig(ctx.cwd);
-			const options = settingsLines(config).map((line) => `  ${line}`);
-			options.unshift("─── Settings ───");
-			options.push("Done");
-			const selected = await ctx.ui.select("Goal settings", options);
-			if (!selected || selected === "Done" || selected === "─── Settings ───") return;
-			// Strip leading spaces from selection
-			const selectedTrimmed = selected.trim();
-			const colon = selectedTrimmed.indexOf(":");
-			if (colon === -1) continue;
-			const field = selectedTrimmed.slice(0, colon).trim();
-			const editorKey = field === "thinking_level" ? "thinkingLevel" : field;
-			if (!(editorKeys as readonly string[]).includes(editorKey)) continue;
-			const key = editorKey as keyof GoalSettings;
-			if (key === "disabled") {
-				const next = { ...config, disabled: !config.disabled };
-				saveGoalSettingsFileConfig(ctx.cwd, next);
-				ctx.ui.notify(`Settings saved:\n${settingsLines(loadGoalSettingsFileConfig(ctx.cwd)).join("\n")}`, "info");
-				continue;
-			}
-			if (key === "subtaskDepth") {
-				const input = await ctx.ui.input("Set subtaskDepth", String(config.subtaskDepth ?? 1));
+		inGoalUiDialog = true;
+		try {
+			while (true) {
+				const config = loadGoalSettingsFileConfig(ctx.cwd);
+				const options = settingsLines(config).map((line) => `  ${line}`);
+				options.unshift("─── Settings ───");
+				options.push("Done");
+				const selected = await ctx.ui.select("Goal settings", options);
+				if (!selected || selected === "Done" || selected === "─── Settings ───") return;
+				// Strip leading spaces from selection
+				const selectedTrimmed = selected.trim();
+				const colon = selectedTrimmed.indexOf(":");
+				if (colon === -1) continue;
+				const field = selectedTrimmed.slice(0, colon).trim();
+				const editorKey = field === "thinking_level" ? "thinkingLevel" : field;
+				if (!(editorKeys as readonly string[]).includes(editorKey)) continue;
+				const key = editorKey as keyof GoalSettings;
+				if (key === "disabled") {
+					const next = { ...config, disabled: !config.disabled };
+					saveGoalSettingsFileConfig(ctx.cwd, next);
+					ctx.ui.notify(`Settings saved:\n${settingsLines(loadGoalSettingsFileConfig(ctx.cwd)).join("\n")}`, "info");
+					continue;
+				}
+				if (key === "subtaskDepth") {
+					const input = await ctx.ui.input("Set subtaskDepth", String(config.subtaskDepth ?? 1));
+					if (input === undefined) continue;
+					const n = parseInt(input.trim(), 10);
+					if (isNaN(n) || n < 1) {
+						ctx.ui.notify("subtaskDepth must be a positive integer", "warning");
+						continue;
+					}
+					const next = { ...config, subtaskDepth: n };
+					saveGoalSettingsFileConfig(ctx.cwd, next);
+					ctx.ui.notify(`Settings saved:\n${settingsLines(loadGoalSettingsFileConfig(ctx.cwd)).join("\n")}`, "info");
+					continue;
+				}
+				const currentValue = settingsValue(config, key);
+				const input = await ctx.ui.input(`Set ${field}`, currentValue === "(default)" ? "Leave empty for default" : currentValue);
 				if (input === undefined) continue;
-				const n = parseInt(input.trim(), 10);
-				if (isNaN(n) || n < 1) {
-					ctx.ui.notify("subtaskDepth must be a positive integer", "warning");
-					continue;
+				const next: GoalSettings = { ...config };
+				const inputTrimmed = input.trim();
+				if (!inputTrimmed) {
+					delete next[key];
+				} else if (key === "thinkingLevel") {
+					if (!["off", "minimal", "low", "medium", "high", "xhigh"].includes(inputTrimmed)) {
+						ctx.ui.notify("thinking_level must be one of: off, minimal, low, medium, high, xhigh", "warning");
+						continue;
+					}
+					next.thinkingLevel = inputTrimmed as GoalSettings["thinkingLevel"];
+				} else if (key === "provider" || key === "model") {
+					next[key] = inputTrimmed;
 				}
-				const next = { ...config, subtaskDepth: n };
 				saveGoalSettingsFileConfig(ctx.cwd, next);
 				ctx.ui.notify(`Settings saved:\n${settingsLines(loadGoalSettingsFileConfig(ctx.cwd)).join("\n")}`, "info");
-				continue;
 			}
-			const currentValue = settingsValue(config, key);
-			const input = await ctx.ui.input(`Set ${field}`, currentValue === "(default)" ? "Leave empty for default" : currentValue);
-			if (input === undefined) continue;
-			const next: GoalSettings = { ...config };
-			const inputTrimmed = input.trim();
-			if (!inputTrimmed) {
-				delete next[key];
-			} else if (key === "thinkingLevel") {
-				if (!["off", "minimal", "low", "medium", "high", "xhigh"].includes(inputTrimmed)) {
-					ctx.ui.notify("thinking_level must be one of: off, minimal, low, medium, high, xhigh", "warning");
-					continue;
-				}
-				next.thinkingLevel = inputTrimmed as GoalSettings["thinkingLevel"];
-			} else if (key === "provider" || key === "model") {
-				next[key] = inputTrimmed;
-			}
-			saveGoalSettingsFileConfig(ctx.cwd, next);
-			ctx.ui.notify(`Settings saved:\n${settingsLines(loadGoalSettingsFileConfig(ctx.cwd)).join("\n")}`, "info");
+		} finally {
+			inGoalUiDialog = false;
 		}
 	}
 
