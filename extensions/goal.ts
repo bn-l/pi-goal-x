@@ -3303,7 +3303,8 @@ promptGuidelines: [
 		},
 	}));
 
-	syncGoalTools();
+	// Defer initial sync — pi runtime may not be ready during extension loading.
+	// session_start will call syncGoalTools via loadState → updateUI.
 
 	pi.on("context", async (event): Promise<{ messages: typeof event.messages } | undefined> => {
 		let changed = false;
